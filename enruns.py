@@ -1,0 +1,12 @@
+import trap as t
+t.twodsave(-10,10,256,0.01,3,100,10,0,P=0.,wick=True, skip=100, energies=True,init = t.gauss,corr=0.5)
+t.twodsave(-10,10,256,0.01,3,100,20,0,P=0.,wick=True, skip=100, energies=True,init = t.gauss,corr=0.5)
+t.twodsave(-10,10,256,0.01,3,100,30,0,P=0.,wick=True, skip=100, energies=True,init = t.gauss,corr=0.5)
+t.twodsave(-10,10,256,0.01,3,100,30,0,P=0.,wick=True, skip=100, energies=True,init = t.gauss,corr=0.5)
+t.twodsave(-10,10,256,0.01,3,100,40,0,P=0.,wick=True, skip=100, energies=True,init = t.gauss,corr=0.5)
+t.twodsave(-10,10,256,0.01,3,100,50,0,P=0.,wick=True, skip=100, energies=True,init = t.gauss,corr=0.5)
+t.twodsave(-10,10,256,0.01,3,100,60,0,P=0.,wick=True, skip=100, energies=True,init = t.gauss,corr=0.5)
+t.twodsave(-10,10,256,0.01,3,100,70,0,P=0.,wick=True, skip=100, energies=True,init = t.gauss,corr=0.5)
+t.twodsave(-10,10,256,0.01,3,100,80,0,P=0.,wick=True, skip=100, energies=True,init = t.gauss,corr=0.5)
+t.twodsave(-10,10,256,0.01,3,100,90,0,P=0.,wick=True, skip=100, energies=True,init = t.gauss,corr=0.5)
+t.twodsave(-10,10,256,0.01,3,100,100,0,P=0.,wick=True, skip=100, energies=True,init = t.gauss,corr=0.5)
