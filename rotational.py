@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Program:      2D BEC simulation runs - special purpose runs
+# Program:      2D BEC simulation runs - angular momentum runs
 #
 # Author:       Nathanael Lampe, School of Physics, Monash University
 #
@@ -17,9 +17,12 @@
 #               Jan 24, 2013: The program works in accordance with the virial 
 #                             theorem, and TF approximation, Has now been forked
 #                             to rotate.py, where rotation will be implemented.
-#           --->irrotational.py
+#               irrotational.py
 #               Jan 30, 2013: Forked from the twod.py runtime, to execute
 #                             specific scenarios
+#           --->rotational.py
+#               Feb 12, 2013: Forked from the irrotational.py program to execute
+#                             required scenarios
 #
 # Purpose:      Provide a function to evaluate the stability of a 
 #               gravitationally bound BEC under varying trap strengths
@@ -34,9 +37,98 @@ import numpy as np
 from scripts.initials import *
 from scripts.trapsave import *
 from scripts.trapplot import *
-from scripts.twod     import *
+from scripts.rotate   import *
 ################################################################################
 
+def rotatebec( a                      ,  #min co-ord
+               b                      ,  #max co-ord
+               npt                    ,  #no. gridpoints
+               dt                     ,  #timestep
+               tstop                  ,  #time to stop
+               g                      ,  #s-wave scattering strength
+               G                      ,  #gravitational field scaled strength
+               wick     = False       ,  #Wick rotation T/F?
+               rot      = 0.          ,  #angular momentum in system
+               filename = autof       ,  #output filename, autof for automatic naming
+               P        = 0.          ,  #optional harmonic potential
+               init     = gravground  ,  #initial wavefunction shape (function call)
+               skip     = 1.          ,  #intervals to skip when saving
+               erase    = False       ,  #overwrite existing files True/False
+               **kwargs                ):
+  '''
+  save the result of a gravitational simulation of a BEC
+  saved file is a hd5 database
+  SYNTAX:
+  def rotatebec( a                      ,  #min co-ord
+                 b                      ,  #max co-ord
+                 npt                    ,  #no. gridpoints
+                 dt                     ,  #timestep
+                 tstop                  ,  #time to stop
+                 g                      ,  #s-wave scattering strength
+                 G                      ,  #gravitational field scaled strength
+                 wick     = False       ,  #Wick rotation T/F?
+                 rot      = 0.          ,  #angular momentum in system
+                 filename = autof       ,  #output filename, autof for automatic naming
+                 P        = 0.          ,  #optional harmonic potential
+                 init     = gravground  ,  #initial wavefunction shape (function call)
+                 skip     = 1.          ,  #intervals to skip when saving
+                 erase    = False       ,  #overwrite existing files True/False
+                 **kwargs                ):
+  '''
+  #initial setup ---------------------------------------------------------------
+  assert type(wick) == bool, 'wick is a boolean, ie. True or False'
+  
+  #Prepare parameters for database
+  h = dict( {'G'        : G                    ,
+             'g'        : g                    ,
+             'rot'      : rot                  ,
+             'P'        : P                    ,
+             'dt'       : dt                   ,
+             'tstop'    : tstop                ,
+             'xmin'     : a                    ,
+             'xmax'     : b                    ,
+             'npt'      : npt                  ,
+             'skipstep' : skip                 ,
+             'steps'    : (tstop // dt) // skip,
+             'wick'     : wick                 } )
+  h = dict( h.items() + kwargs.items() ) #merge the dictionaries
+  
+  if filename == autof: #automatically add run to database, and name file
+    filename = autof(h, folder = 'rotate')
+  else: #custom filename
+    if type(filename) != str: return SystemError('Filename should be a string')
+  
+  #Make a condensate
+  bec = Bose( a, b, int(npt), init, g, G, rot, P, dt, **kwargs)  
+  
+  if wick == True:
+    bec.wickon()
+  else:
+    bec.wickoff()
+  
+  infile = h5file( filename, erase = erase, read = False )
+  infile.add_headers( h )
+  infile.add_data( str('0.0'), bec.x, bec.y, bec.psi, time=0.0) 
+
+  savecounter = 0.
+  saves=0
+  # time-evolution------------------------------------------------------------
+  for t in np.arange( 0, tstop, dt ):
+    bec.stepRK4() #timestep bec.psi, Wick rotation is handled in stepRK4
+    savecounter += 1.
+    
+    if savecounter == skip: #save the data
+      infile.add_data(str( saves + 1.), bec.x, bec.y, bec.psi, t)
+      savecounter = 0.
+      saves += 1
+      print t
+  
+  print 'Run saved to ' + filename
+  print 'Parameters added to sims/runs.info'
+  print 'Have a nice day :)'
+  infile.f.close()
+  
+  return None
 
 
 def explode( a                      ,  #min co-ord

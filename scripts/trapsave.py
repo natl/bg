@@ -68,8 +68,8 @@ def readh5( name ):
   try:
     f = h5py.File( str(name) , 'r')
   except:
-    print "It seems the file you tried to open doesn't exist."
-    print "sorry about that :("
+    raise IOError( "It seems the file you tried to open doesn't exist.\
+                         \nsorry about that :(" )
   
   headers = dict()
   

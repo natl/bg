@@ -37,63 +37,12 @@ import scipy.linalg as la
 from scipy.sparse import spdiags
 from scipy.special import j0, j1, jn_zeros
 
-from traphdf5 import *
+from trapsave import *
 from initials import *
 from trapplot import *
 
 ################################################################################
 
-def k_vector( n, extent ):
-  '''Usual FFT format k vector (as in Numerical Recipes)'''
-  delta = float(extent) / float(n-1)
-  k_pos = np.arange(      0, n/2+1, dtype = float)
-  k_neg = np.arange( -n/2+1,     0, dtype = float)
-  return (2*np.pi/n/delta) * np.concatenate( (k_pos,k_neg) )
-
-################################################################################
-
-def k2dimen(a,b,npt):
-  k_vec = k_vector(npt, b - a )
-  KX, KY = np.meshgrid ( k_vec, k_vec )
-  k2squared = KX ** 2. + KY ** 2.
-  k2 = np.sqrt( k2squared )
-  
-  #k_vec = k_vector(npt, b - a )
-  #k2d = np.zeros([npt,npt])
-  #kf2 = np.zeros([npt,npt])
-  #for ii in range(0,npt):
-    #for jj in range(0,npt):
-      #kf2[ii,jj] = k_vec[ii]**2+k_vec[jj]**2
-      #k2d[ii,jj] = np.sqrt(kf2[ii,jj])
-  k2[ npt/2:npt, 0:npt/2   ] = -k2[ npt/2:npt, 0:npt/2   ]
-  k2[ 0:npt/2  , npt/2:npt ] = -k2[ 0:npt/2  , npt/2:npt ]
-  return k2squared, k2
-
-################################################################################
-
-
-
-################################################################################
-
-def harm_trap( x, y, P ):
-  X, Y = np.meshgrid(x,y)
-  return 0.5 * P * ( X**2 + Y**2 )
-
-################################################################################
-  
-def kernel( x    , 
-            y    ,
-            npt  ):
-  '''
-  Define the grid 1/abs(r)
-  '''
-  ker = np.zeros([npt,npt])
-  for ii in range(0,npt):
-    for jj in range(0,npt):
-      ker[ii,jj] = abs(1./np.sqrt(x[ii]**2.+y[jj]**2.))
-  return ker
-
-################################################################################
   
 class Bose:
   '''
@@ -116,26 +65,66 @@ class Bose:
     self.y  = self.x
     self.dy = abs( self.y[1] - self.y[0] )
     self.X, self.Y = np.meshgrid(self.x, self.y)
+    self.rad = np.sqrt( self.X ** 2. + self.Y ** 2. )
     
-    self.psi              = init      ( self.x, self.y, self.npt, **kwargs )
-    self.psi              = self.psi / np.sqrt( sum(
-                                                   sum ( abs( self.psi ) ** 2. )
-                                                   ) * self.dx * self.dy )
-                          #This ensures the wavefunction is normalised
+    self.psi = init( self.x, self.y, g = self.g, G = self.G, **kwargs )
+    self.normalise()
     
-    self.ksquare , self.k = k2dimen   ( self.xmin, self.xmax, self.npt )
-    self.V                = harm_trap ( self.x, self.y, self.P )
-    self.ker              = kernel    ( self.x, self.y, self.npt )
-    
-    self.expksquare       = np.exp    ( -0.5j * self.dt * self.ksquare )
-    
-    self.log              = np.log( np.sqrt( self.X ** 2. + self.Y ** 2. ) )
-    
-    #self.Lz               = self.Lzmake( order = 2. )
+    self.ksquare , self.k = k2dimen()
+    self.V                = harm_trap()
+    self.ker              = kernel()
+    self.expksquare       = np.exp( -0.5j * self.dt * self.ksquare )
+    self.log              = np.log( self.rad )
+    self.Lz               = self.Lzmake( **kwargs )
     
   #-----------------------------------------------------------------------------
-  
-  def gravity(self):
+  def normalise( self ):
+    '''
+    normalise psi
+    call normalise() to normalise the wavefunction
+    return is None
+    '''
+    self.psi = self.psi / np.sqrt( sum( sum ( abs( self.psi ) ** 2. ) )
+             * self.dx * self.dy )
+    return None
+  #-----------------------------------------------------------------------------
+  def k_vector( self ):
+    '''Usual FFT format k vector (as in Numerical Recipes)'''
+    delta = float( self.b - self.a ) / float( self.npt - 1 )
+    k_pos = np.arange(      0, self.npt/2+1, dtype = float)
+    k_neg = np.arange( -self.npt/2+1,     0, dtype = float)
+    
+    return (2*np.pi/self.npt/delta) * np.concatenate( (k_pos,k_neg) )
+
+  #-----------------------------------------------------------------------------
+  def k2dimen( self ):
+    '''
+    2d fft k-array, returns k^2, k both in 2d
+    '''
+    k_vec = k_vector()
+    KX, KY = np.meshgrid ( k_vec, k_vec )
+    k2squared = KX ** 2. + KY ** 2.
+    k2 = np.sqrt( k2squared )
+    k2[ npt/2:npt, 0:npt/2   ] = -k2[ npt/2:npt, 0:npt/2   ]
+    k2[ 0:npt/2  , npt/2:npt ] = -k2[ 0:npt/2  , npt/2:npt ]
+    
+    return k2squared, k2
+
+  #-----------------------------------------------------------------------------
+  def harm_trap( self ):
+    '''Harmonic potential,return 0.5 * self.P * self.rad ** 2.'''
+    return 0.5 * self.P * self.rad ** 2.
+
+  #-----------------------------------------------------------------------------
+  def kernel( self ):
+    '''
+    Define the grid 1/abs(r)
+    '''
+    return abs( 1. / self.rad )
+
+  #-----------------------------------------------------------------------------
+
+  def gravity( self ):
     '''
     Evaluate the gravitational field, with a call to Bose.gravity()
     Gravitaional field is the convolution of the density and the log of distance
@@ -150,125 +139,65 @@ class Bose:
                       )                  )
   
   #-----------------------------------------------------------------------------
-  def fgravity( self            ,
-                verbose = False ):
-    '''
-    fgravity( self           ,
-              verbose =False ):
-    Evaluate the gravitational field by FEM, with a call to Bose.gravity()
-    Gravitaional field is the convolution of the density and the kernel
-    Uses self.ker = 1/|r|, self.psi = wavefunction
-    
-    verbose = True will plot both the FEM gravity and FFT gravity
-    '''
-    den = abs(self.psi)**2.  #calculate the probability density
-    
-    #return the convolution, after multiplying by scaled gravity and 
-    #correcting for grid scaling (due to 2 forward FFTs, and only one inverse
-    grav = np.zeros( [ self.npt, self.npt ] )
-    #for ii in range( 1, self.npt - 1 ):
-      #for jj in range( 1, self.npt - 1 ):
-        #integral = 0.
-        #X, Y = np.meshgrid( self.x, self.y )
-        #grav[ii,jj] = self.dx * self.dy * sum( sum( den / np.sqrt(
-                     #( X - self.x[ii] ) ** 2. + ( Y - self.y[jj] ) ** 2. ) ) )
-        #for kk in range( 1, self.npt - 1 ):
-          #for ll in range( 1, self.npt - 1 ):
-            #if kk != ii and ll != jj: integral += den[kk, ll] / np.sqrt(
-                                      #( self.x[kk] - self.x[ii] ) ** 2. + 
-                                      #( self.y[ll] - self.y[jj] ) ** 2. )
-        #grav[ii,jj] = integral * self.dx * self.dy
-    for ii in range(1, self.npt -1):
-      y = self.y[self.npt//2]
-      integral = 0
-      for kk in range( 1, self.npt - 1):
-        for ll in range( 1, self.npt - 1):
-          if kk != ii and ll != self.npt//2:
-            integral += den[kk, ll] / np.sqrt(
-                                    ( self.x[kk] - self.x[ii] ) ** 2. + 
-                                    ( self.y[ll] - y) ** 2. )
-
-      grav[self.npt//2,ii] = self.G * integral * self.dx * self.dy
-  
-    if verbose == True:
-      gfig = plt.figure()
-      gax = gfig.add_subplot(111)
-      gax.plot(self.x, grav[ self.npt//2, : ], label = 'FEM')
-      gax.plot(self.x, self.gravity()[ self.npt//2, : ],
-                                                label = 'FFT' )
-      lgd = plt.legend( loc = 'upper right' )
-      plt.show()
-    
-    return grav
-  
-  #-----------------------------------------------------------------------------
-  
-  def step2(self):
-    '''
-    Perform a second order timestep
-    '''
-    
-    V2 = np.exp( -1j * self.dt / 2. * (self.V - self.gravity() + 
-                                       self.g * abs( self.psi ) ** 2
-                                       ) 
-                )
-                   
-    return V2 * ff.fftshift( ff.ifft2(self.expksquare * 
-                                    ff.fft2( ff.fftshift( V2 * self.psi ) )
-                                    )
-                           )
-  
-  #-----------------------------------------------------------------------------
-  
-  def step4(self):
-    '''
-    Perform a 4th order timestep
-    '''
-    
-    def order2(c):
-      Vc = np.exp( -1j * c * self.dt / 2. * 
-                    ( self.V - self.gravity() + 
-                      self.g * abs( self.psi ) ** 2
-                    )
-                  )
-      Tc = self.expksquare ** c
-      return Vc, Tc
-    
-    p = 1/(4.-4.**(1/3.))
-    q = 1 - 4 * p
-    
-    Vp,Tp = order2( p )
-    Vq,Tq = order2( q )
-    
-    return Vp * ff.fftshift( ff.ifft2( Tp * ff.fft2( ff.fftshift( Vp ** 2 * 
-                ff.fftshift( ff.ifft2( Tp * ff.fft2( ff.fftshift( Vp * Vq *
-                ff.fftshift( ff.ifft2( Tq * ff.fft2( ff.fftshift( Vq * Vp * 
-                ff.fftshift( ff.ifft2( Tp * ff.fft2( ff.fftshift( Vp ** 2 *  
-                ff.fftshift( ff.ifft2( Tp * ff.fft2( ff.fftshift( Vp * self.psi 
-                ) ) ) )
-                ) ) ) )
-                ) ) ) )
-                ) ) ) )
-                ) ) ) )
-    
-  #-----------------------------------------------------------------------------
-  
-  #-----------------------------------------------------------------------------
-  
   def stepRK4(self):
     '''
     Perform a timestep using the RK4 Interaction Picture
     '''
+    n2 = self.npt ** 2.
+    sq = [ self.npt, self.npt ]
+    
+    psii   = self.psi
     
     #Linear operator parts
     psiI = ff.fftshift( ff.ifft2( self.expksquare ** ( self.dt / 2 ) * 
-                         ff.fft2( ff.fftshift( self.psi ) ) ) )
+                         ff.fft2( ff.fftshift( self.psi ) ) ) ).reshape( n2 )
+    
+    psiII = ff.fftshift( ff.ifft2( self.expksquare ** ( self.dt ) * 
+                          ff.fft2( ff.fftshift( self.psi ) ) ) ).reshape( n2 )
     
     #Nonlinear operator parts
-    grav = self.gravity().reshape( self.npt ** 2 )
-    harm = self.
+    grav = spdiags( self.gravity().reshape( n2 ), 0, n2, n2 )
+    harm = spdiags( self.V.reshape( n2 ), 0, n2, n2 )
+    sint = spdiags( self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
     
+    nonlin = self.Lz + grav + harm + sint 
+    
+    #timesteps - note, we need to keep the pointer to self.psi the same
+    #as this is requried if FFTW is ever implemented. We still need to update
+    #self.psi at each step though to calculate self.gravity()
+    ############################################################################
+    k1 = ( self.dt * nonlin.dot( psiI ) ).reshape( sq )
+    self.psi += ( k1 / 2. )
+    
+    grav = spdiags( self.gravity().reshape( n2 ), 0, n2, n2 )
+    sint = spdiags( self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+    nonlin = self.Lz + grav + harm + sint 
+    ############################################################################
+    k2 = ( self.dt * nonlin.dot( psiI + k1.reshape( n2 ) / 2. ) ).reshape( sq )
+    self.psi[:] = psii + k2 / 2.
+    
+    grav = spdiags( self.gravity().reshape( n2 ), 0, n2, n2 )
+    sint = spdiags( self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+    nonlin = self.Lz + grav + harm + sint 
+    ############################################################################
+    k3 = ( self.dt * nonlin.dot( psiI + k2.reshape( n2 ) / 2. ) ).reshape( sq )
+    self.psi[:] = psii + k3
+    
+    grav = spdiags( self.gravity().reshape( n2 ), 0, n2, n2 )
+    sint = spdiags( self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+    nonlin = self.Lz + grav + harm + sint 
+    ############################################################################
+    k4 = ( self.dt * nonlin.dot( psiII + k3.reshape( n2 ) ) ).reshape( sq )
+    
+    ############################################################################
+    
+    
+    self.psi[:] = ff.fftshift( ff.ifft2( self.expksquare ** ( self.dt / 2) * 
+           ff.fft2( ff.fftshift( psiI + (k1 + 2 * ( k2 +k3 ) + k4 ) / 6. ) ) 
+                   )  )
+    if self.wick = True: self.normalise()
     return None
+    
   #-----------------------------------------------------------------------------
   def wickon(self):
     '''
@@ -276,6 +205,7 @@ class Bose:
     '''
     self.dt               = -1j * abs(self.dt)
     self.expksquare       = np.exp( -0.5j * self.dt * self.ksquare )
+    return None
   #-----------------------------------------------------------------------------
   
   def wickoff(self):
@@ -284,6 +214,7 @@ class Bose:
     '''
     self.dt               = abs(self.dt)
     self.expksquare       = np.exp( -0.5j * self.dt * self.ksquare )
+    return None
   #-----------------------------------------------------------------------------
   
   def energies( self            ,
@@ -445,12 +376,6 @@ class Bose:
         
         TFList = [ Ev, Ei, Eg, Ekin ]
         
-        #glpg = - 1. * ( np.roll( GField, 1, axis = 0 ) #GField is +ve
-                      #+ np.roll( GField,-1, axis = 0 )
-                      #+ np.roll( GField, 1, axis = 1 )
-                      #+ np.roll( GField,-1, axis = 1 )
-                      #- 4 * GField ) / self.dx ** 2.
-        #glpd = 2 * np.pi * self.G * gtfsol 
         
         print '\nTF solution Energies\n'
         print 'Harmonic PE         = ', np.real( TFList[0] )
@@ -504,60 +429,67 @@ class Bose:
     return virial <= tol
   
   def Lzmake( self       ,
-              order = 2. ):
+              order = 3  ,
+              **kwargs   ):
     '''
+    def Lzmake( self       ,
+                order = 3  ,
+                **kwargs   ):
     A routine to return Lz, the angular momentum finite difference matrix.
-    Derivatives are from:
-    Generation of finite difference formulas on arbitrarily spaced grids
-    Fornberg, B.,Generation of finite difference formulas on arbitrarily spaced
-    grids, Math. Comp. 51 (1988), 699-706 
+    Derivatives are from the PhD thesis of Andreas Penckwitt, PhD Thesis 2004
+    Rotating Bose Einstein Condensates: Vortex Lattices and Excitations"
+    www.physics.otago.ac.nz/nx/jdc/jdc-thesis-page.html"
+    He also explains the RK4IP timestepping method
     '''
+    assert order in [ 3, 5, 7, 9, 11, 13 ],\
+      'Only order values contained in [ 3, 5, 7, 9, 11, 13 ] are implemented\
+     \nthus far, please ensure you are have the order type correct also.'
     
-    if order == 2:
-      a = [ 0, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, 0, 0 ]
+    if order == 3:
+      a = np.array( [ 0., 0., 0., 0., 0., -1., 0., 1., 0., 0., 0., 0., 0. ] )
       denom = 2.
       a /= denom
     elif order == 5:
-      a = [ 0, 0, 0, 0, 1, -8, 0, 8, -1, 0, 0, 0, 0 ]
+      a = np.array( [ 0., 0., 0., 0., 1., -8., 0., 8., -1., 0., 0., 0., 0. ] )
       denom = 12.
       a /= denom
     elif order == 7:
-      a = [ 0, 0, 0, -1, 9, -45, 0, 45, -9, 1, 0, 0, 0 ]
+      a = np.array( [ 0., 0., 0., -1., 9., -45., 0., 45., -9., 1., 0., 0., 0. ] )
       denom = 60.
       a /= denom
     elif order == 9:
-      a = [ 0, 0, 3, -32, 168, -672, 0, 672, -168, 32, -3, 0, 0 ]
+      a = np.array( [ 0., 0., 3., -32., 168., -672., 0., 672., -168., 32., -3., 0., 0. ] )
       denom = 840.
       a /= denom
     elif order == 11:
-      a = [ 0, -2, 25, -150, 600, -2100, 0, 2100, -600, 150, -25, 2, 0 ]
+      a = np.array( [ 0., -2., 25., -150., 600., -2100., 0.,
+                      2100., -600., 150., -25., 2., 0. ] )
       denom = 2520.
       a /= denom
     elif order == 13:
-      a = [ 5, -72, 495, -2200, 7425, -23760, 0,
-            23760, -7425, 2200, -495, 72, -5 ]
+      a = np.array( [ 5., -72., 495., -2200., 7425., -23760., 0.,
+                      23760., -7425., 2200., -495., 72., -5. ] )
       denom = 27720.
       a /= denom
     
-    elif type(order) != int: print 'Order must be type int'
-    else: print 'ensure order is 3, 5, 7 or 9'
+    elif type(order) != int: return SystemError('Order must be type int')
+    else: return SystemError('Invalid FEM order: order = 3, 5, 7, 9, 11 or 13')
     
     data = []
     diag = []
-    for jj in where([ii != 0 for ii in a])[0]:
+    for jj in np.where( [ii != 0 for ii in a] )[0]:
       #Iterate over the diagonals in a that are non-zero
       #offset of jj from array centred
       off = jj - np.ceil( jj/2. )
-      data.append( a[jj] * np.ones( [self.npt ** 2, 1] ) )
+      data.append( a[jj] * np.ones( [ 1, self.npt ** 2 ] ) )
       diag.append( off )
       
-      data.append( a[jj] * np.ones( [self.npt ** 2, 1] ) )
+      data.append( a[jj] * np.ones( [ 1, self.npt ** 2 ] ) )
       diag.append( self.npt + off )
     
-    Lz = spdiags( data, diag, self.npt ** 2., self.npt ** 2. )
+    data = np.vstack(data) #put the data in rank 2 array
     
-    
-    return Lz #we assume dx=dy
+    return self.rot * spdiags( data, diag, self.npt ** 2., self.npt ** 2. )
   
 ################################################################################
 ################################################################################
@@ -691,85 +623,3 @@ def twodsave( a                      ,  #min co-ord
   print 'Parameters added to sims/runs.info'
   print 'Have a nice day :)'
   infile.f.close()
-
-################################################################################
-def twod( a                 ,
-          b                 ,
-          npt               ,
-          dt                ,
-          tstop             ,
-          g                 ,
-          G                 ,
-          rot               ,
-          P        = 0.     ,
-          wick     = False  ,
-          init     = gauss  ,
-          analysis = False  ,
-          **kwargs          ):
-  '''
-  Return the result of a gravitational simulation of a BEC
-  xvals, tvals, psi = oned(a,b,npt,dt,tstop,g,G,P=0.,wick=False):
-  a = xmin
-  b = xmax
-  npt = spatial steps
-  dt = timestep size
-  tstop = stopping time
-  g = s-wave self-interaction strenth
-  G = gravitational interaction strength
-  P = harmonic potential strength (default 0)
-  '''
-  
-  bec = Bose( a, b, int(npt), init, g, G, rot, P, dt, **kwargs)
-  
-  if wick == True : bec.wickon()  #Wick Rotation
-  
-  #normalise the wavefunction
-  norm      = sum(sum( bec.psi * ( bec.psi ).conjugate() )) * bec.dx * bec.dy
-  bec.psi   = bec.psi / np.sqrt( norm )
-  #wavefunction normalised so probability = 1  
-  
-  print '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
-  print 'Initial Energies'
-  Epot, Ekin = energies(bec)
-  print '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
-  Einit = Epot+Ekin
-  
-  #prepare data output arrays
-  gravout = [bec.gravity()]
-  results = [bec.psi]
-    
-  jj = int(0)     #A simple counter
-  stable = False  #Changes to true when the routine converges under
-                  #Wick rotation, if the analysis function is active
-  
-  # time-evolution
-  for t in np.arange(0,tstop,dt):
-  
-    bec.psi = bec.step4()
-    
-    if wick == True:
-      norm  = sum( sum( abs( bec.psi )**2 ) ) * bec.dx * bec.dy
-      bec.psi = bec.psi / np.sqrt(norm)
-    
-    results.append(bec.psi)
-    gravout.append(bec.gravity())
-    
-    if jj == (100 * (jj // 100)):
-      
-      #print '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
-      #print 'Energies at', jj
-      #oldE = Epot + Ekin
-      #Epot, Ekin = energies(bec)
-      #print '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
-      
-      if wick == True and analysis == True and abs(Epot + Ekin - oldE) < 1e-4:
-        stable = True
-        break
-    jj += 1
-    
-  print '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
-  print 'Final Energies'
-  Epot, Ekin = energies(bec)
-  print '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
-  
-  return bec, np.arange(0,jj*dt,dt), results, gravout, stable

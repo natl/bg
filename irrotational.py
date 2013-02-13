@@ -50,7 +50,7 @@ def explode( a                      ,  #min co-ord
              rot      = 0.          ,  #angular momentum in system
              filename = autof       ,  #output filename, autof for automatic naming
              P        = 0.          ,  #optional harmonic potential
-             init     = gauss       ,  #initial wavefunction shape (function call)
+             init     = gravground  ,  #initial wavefunction shape (function call)
              skip     = 1.          ,  #intervals to skip when saving
              erase    = False       ,  #overwrite existing files True/False
              tol      = 0.1         ,  #convergence tolerance

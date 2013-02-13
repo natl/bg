@@ -18,9 +18,11 @@
 #                             This allows for run paramaters to be added and
 #                             removed.
 #
-#               Feb 4, 2013: Trying to fix dbconvert, replacing all instances
-#                            of dict.iteritems()/h5py.class.iteritems() with the
-#                            items() method, for Python 3 compatability
+#               Feb 04, 2013: Trying to fix dbconvert, replacing all instances
+#                             of dict.iteritems()/h5py.class.iteritems() with
+#                             the items() method, for Python 3 compatability
+#
+#               Feb 11, 2013: Removed microseconds from filenames
 #
 # Purpose:      Contain functions that do most of the hdf5 file handling used
 #               in routines
@@ -66,8 +68,9 @@ def readh5( name ):
   try:
     f = h5py.File( str(name) , 'r')
   except:
-    print "It seems the file you tried to open doesn't exist."
-    print "sorry about that :("
+    print 'TEST'
+    raise SystemError( "It seems the file you tried to open doesn't exist.\
+                         \nsorry about that :("), None
   
   headers = dict()
   
