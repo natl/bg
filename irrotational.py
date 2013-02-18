@@ -473,3 +473,19 @@ def twobec( a                      ,  #min co-ord
   infile.f.close()
   
   return None
+  
+def phasediagram():
+  '''
+  A static function currently to produce a 'phase diagram' of stability
+  '''
+  gvals = 10 ** np.linspace( -2., 3., 20. )
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  return None

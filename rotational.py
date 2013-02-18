@@ -109,7 +109,8 @@ def rotatebec( a                      ,  #min co-ord
   infile = h5file( filename, erase = erase, read = False )
   infile.add_headers( h )
   infile.add_data( str('0.0'), bec.x, bec.y, bec.psi, time=0.0) 
-
+  
+  bec.energies( verbose = True )
   savecounter = 0.
   saves=0
   # time-evolution------------------------------------------------------------
@@ -122,6 +123,8 @@ def rotatebec( a                      ,  #min co-ord
       savecounter = 0.
       saves += 1
       print t
+  
+  bec.energies( verbose = True )
   
   print 'Run saved to ' + filename
   print 'Parameters added to sims/runs.info'
@@ -565,3 +568,4 @@ def twobec( a                      ,  #min co-ord
   infile.f.close()
   
   return None
+

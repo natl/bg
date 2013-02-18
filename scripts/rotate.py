@@ -70,10 +70,10 @@ class Bose:
     self.psi = init( self.x, self.y, g = self.g, G = self.G, **kwargs )
     self.normalise()
     
-    self.ksquare , self.k = k2dimen()
-    self.V                = harm_trap()
-    self.ker              = kernel()
-    self.expksquare       = np.exp( -0.5j * self.dt * self.ksquare )
+    self.ksquare , self.k = self.k2dimen()
+    self.V                = self.harm_trap()
+    self.ker              = self.kernel()
+    self.expksquare       = np.exp( -1.j * self.dt * self.ksquare )
     self.log              = np.log( self.rad )
     self.Lz               = self.Lzmake( **kwargs )
     
@@ -90,7 +90,7 @@ class Bose:
   #-----------------------------------------------------------------------------
   def k_vector( self ):
     '''Usual FFT format k vector (as in Numerical Recipes)'''
-    delta = float( self.b - self.a ) / float( self.npt - 1 )
+    delta = float( self.xmax - self.xmin ) / float( self.npt - 1 )
     k_pos = np.arange(      0, self.npt/2+1, dtype = float)
     k_neg = np.arange( -self.npt/2+1,     0, dtype = float)
     
@@ -101,12 +101,14 @@ class Bose:
     '''
     2d fft k-array, returns k^2, k both in 2d
     '''
-    k_vec = k_vector()
+    k_vec = self.k_vector()
     KX, KY = np.meshgrid ( k_vec, k_vec )
     k2squared = KX ** 2. + KY ** 2.
     k2 = np.sqrt( k2squared )
-    k2[ npt/2:npt, 0:npt/2   ] = -k2[ npt/2:npt, 0:npt/2   ]
-    k2[ 0:npt/2  , npt/2:npt ] = -k2[ 0:npt/2  , npt/2:npt ]
+    k2[ self.npt/2:self.npt, 0:self.npt/2   ] = \
+                                      -k2[ self.npt/2:self.npt, 0:self.npt/2   ]
+    k2[ 0:self.npt/2  , self.npt/2:self.npt ] = \
+                                      -k2[ 0:self.npt/2  , self.npt/2:self.npt ]
     
     return k2squared, k2
 
@@ -142,6 +144,7 @@ class Bose:
   def stepRK4(self):
     '''
     Perform a timestep using the RK4 Interaction Picture
+    This routine also considers real/imaginary parts
     '''
     n2 = self.npt ** 2.
     sq = [ self.npt, self.npt ]
@@ -149,13 +152,13 @@ class Bose:
     psii   = self.psi
     
     #Linear operator parts
-    psiI = ff.fftshift( ff.ifft2( self.expksquare ** ( self.dt / 2 ) * 
+    psiI = ff.fftshift( ff.ifft2( self.expksquare ** 0.5 * 
                          ff.fft2( ff.fftshift( self.psi ) ) ) ).reshape( n2 )
     
     #Nonlinear operator parts
-    grav = spdiags( self.gravity().reshape( n2 ), 0, n2, n2 )
-    harm = spdiags( self.V.reshape( n2 ), 0, n2, n2 )
-    sint = spdiags( self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+    grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
+    harm = spdiags( -1.j * self.V.reshape( n2 ), 0, n2, n2 )
+    sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
     
     nonlin = self.Lz + grav + harm + sint 
     
@@ -166,26 +169,26 @@ class Bose:
     k1 = ( self.dt * nonlin.dot( psiI ) ).reshape( sq )
     self.psi += ( k1 / 2. )
     
-    grav = spdiags( self.gravity().reshape( n2 ), 0, n2, n2 )
-    sint = spdiags( self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+    grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
+    sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
     nonlin = self.Lz + grav + harm + sint 
     ############################################################################
     k2 = ( self.dt * nonlin.dot( psiI + k1.reshape( n2 ) / 2. ) ).reshape( sq )
     self.psi[:] = psii + k2 / 2.
     
-    grav = spdiags( self.gravity().reshape( n2 ), 0, n2, n2 )
-    sint = spdiags( self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+    grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
+    sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
     nonlin = self.Lz + grav + harm + sint 
     ############################################################################
     k3 = ( self.dt * nonlin.dot( psiI + k2.reshape( n2 ) / 2. ) ).reshape( sq )
     self.psi[:] = psii + k3
     
-    grav = spdiags( self.gravity().reshape( n2 ), 0, n2, n2 )
-    sint = spdiags( self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+    grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
+    sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
     nonlin = self.Lz + grav + harm + sint 
     ############################################################################
-    psiII = ff.fftshift( ff.ifft2( self.expksquare ** ( self.dt / 2. ) * 
-                          ff.fft2( ff.fftshift( psiI + k3 ) ) ) ).reshape( n2 )
+    psiII = ff.fftshift( ff.ifft2( self.expksquare * 
+            ff.fft2( ff.fftshift( psiI.reshape( sq ) + k3 ) ) ) ).reshape( n2 )
     
     k4 = ( self.dt * nonlin.dot( psiII ) ).reshape( sq )
     
@@ -193,8 +196,9 @@ class Bose:
     
     
     self.psi[:] = ff.fftshift( ff.ifft2( self.expksquare ** ( self.dt / 2) * 
-         ff.fft2( ff.fftshift( psiI + (k1 + 2 * ( k2 +k3 ) + k4 ) / 6. ) ) ) )
-    if self.wick = True: self.normalise()
+                  ff.fft2( ff.fftshift( psiI.reshape(sq) + 
+                                        (k1 + 2 * ( k2 +k3 ) + k4 ) / 6. ) ) ) )
+    if self.wick == True: self.normalise()
     return None
     
   #-----------------------------------------------------------------------------
@@ -202,8 +206,9 @@ class Bose:
     '''
     simple function to ensure imaginary time propagation
     '''
-    self.dt               = -1j * abs(self.dt)
-    self.expksquare       = np.exp( -0.5j * self.dt * self.ksquare )
+    self.dt               = -1j * abs( self.dt )
+    self.expksquare       = np.exp( -1.j * self.dt * self.ksquare )
+    self.wick             = True #internal tracker of current wick state
     return None
   #-----------------------------------------------------------------------------
   
@@ -211,8 +216,9 @@ class Bose:
     '''
     simple function to ensure real time propagation
     '''
-    self.dt               = abs(self.dt)
-    self.expksquare       = np.exp( -0.5j * self.dt * self.ksquare )
+    self.dt               = abs( self.dt )
+    self.expksquare       = np.exp( -1.j * self.dt * self.ksquare )
+    self.wick             = False #internal tracker of current wick state
     return None
   #-----------------------------------------------------------------------------
   
@@ -439,6 +445,7 @@ class Bose:
     Rotating Bose Einstein Condensates: Vortex Lattices and Excitations"
     www.physics.otago.ac.nz/nx/jdc/jdc-thesis-page.html"
     He also explains the RK4IP timestepping method
+    Note that we worry about imaginary/real values in the timestepping
     '''
     assert order in [ 3, 5, 7, 9, 11, 13 ],\
       'Only order values contained in [ 3, 5, 7, 9, 11, 13 ] are implemented\
