@@ -136,8 +136,6 @@ def gauss( x              ,
   Define an initial wavefunction (Gaussian)
   '''
   if abs( corr ) >= 1: print '<twod.gauss> Error: ensure |corr| < 1'
-  print args
-  print means
   X, Y = np.meshgrid( x, y )
   return ( 1. / ( 2. * np.pi * sig[0] * sig[1] * np.sqrt( 1 - corr **2 ) ) *
         np.exp( -1. / ( 2. * ( 1 - corr **2 ) ) *

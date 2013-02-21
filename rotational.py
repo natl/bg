@@ -54,6 +54,7 @@ def rotatebec( a                      ,  #min co-ord
                init     = gravground  ,  #initial wavefunction shape (function call)
                skip     = 1.          ,  #intervals to skip when saving
                erase    = False       ,  #overwrite existing files True/False
+               order    = 5           ,  #Rotational FEM order
                **kwargs                ):
   '''
   save the result of a gravitational simulation of a BEC
@@ -73,6 +74,7 @@ def rotatebec( a                      ,  #min co-ord
                  init     = gravground  ,  #initial wavefunction shape (function call)
                  skip     = 1.          ,  #intervals to skip when saving
                  erase    = False       ,  #overwrite existing files True/False
+                 order    = 5           ,  #Rotational FEM order
                  **kwargs                ):
   '''
   #initial setup ---------------------------------------------------------------
@@ -90,7 +92,8 @@ def rotatebec( a                      ,  #min co-ord
              'npt'      : npt                  ,
              'skipstep' : skip                 ,
              'steps'    : (tstop // dt) // skip,
-             'wick'     : wick                 } )
+             'wick'     : wick                 ,
+             'order'    : order                ,} )
   h = dict( h.items() + kwargs.items() ) #merge the dictionaries
   
   if filename == autof: #automatically add run to database, and name file
@@ -99,7 +102,7 @@ def rotatebec( a                      ,  #min co-ord
     if type(filename) != str: return SystemError('Filename should be a string')
   
   #Make a condensate
-  bec = Bose( a, b, int(npt), init, g, G, rot, P, dt, **kwargs)  
+  bec = Bose( a, b, int(npt), init, g, G, rot, P, dt, order = order, **kwargs)  
   
   if wick == True:
     bec.wickon()

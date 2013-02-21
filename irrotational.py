@@ -479,12 +479,10 @@ def phasediagram():
   A static function currently to produce a 'phase diagram' of stability
   '''
   gvals = 10 ** np.linspace( -2., 3., 20. )
-  
-  
-  
-  
-  
-  
+  Gvals = 10 ** np.linspace( -2., 3., 20. )
+  for g in gvals:
+    for G in Gvals:
+      
   
   
   

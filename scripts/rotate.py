@@ -449,7 +449,8 @@ class Bose:
     '''
     assert order in [ 3, 5, 7, 9, 11, 13 ],\
       'Only order values contained in [ 3, 5, 7, 9, 11, 13 ] are implemented\
-     \nthus far, please ensure you are have the order type correct also.'
+     \nthus far.'
+    
     
     if order == 3:
       a = np.array( [ 0., 0., 0., 0., 0., -1., 0., 1., 0., 0., 0., 0., 0. ] )
@@ -486,15 +487,19 @@ class Bose:
     for jj in np.where( [ii != 0 for ii in a] )[0]:
       #Iterate over the diagonals in a that are non-zero
       #offset of jj from array centred
-      off = jj - np.ceil( jj/2. )
+      off = jj - np.ceil( len( a ) /2. ) + 1.
       data.append( a[jj] * np.ones( [ 1, self.npt ** 2 ] ) )
       diag.append( off )
       
       data.append( a[jj] * np.ones( [ 1, self.npt ** 2 ] ) )
-      diag.append( self.npt + off )
-    
+      diag.append( off * self.npt )
+      
+
+    print diag
+    print data
     data = np.vstack(data) #put the data in rank 2 array
-    
+    test = spdiags( data, diag, self.npt ** 2., self.npt ** 2. )
+    print test.getrow(0),'\n\n', test.getrow(1)
     return self.rot * spdiags( data, diag, self.npt ** 2., self.npt ** 2. )
   
 ################################################################################

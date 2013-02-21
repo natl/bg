@@ -83,8 +83,8 @@ def twoblobs(x        ,
   sig1 = 1.
   pi = np.pi
   sig2 = 1.
-  psi1 = 1.0/np.sqrt(2*pi*sig1**2) * np.exp(-((X-xo1)**2 + Y**2.) / (2*sig1**2)) 
-  psi2 = 1.0/np.sqrt(2*pi*sig2**2) * np.exp(-((X-xo2)**2 + Y**2.) / (2*sig2**2))
+  psi1 = 1.0/np.sqrt(2*pi*sig1**2) * np.exp(-((Y-xo1)**2 + X**2.) / (2*sig1**2)) 
+  psi2 = 1.0/np.sqrt(2*pi*sig2**2) * np.exp(-((Y-xo2)**2 + X**2.) / (2*sig2**2))
   psi = psi1 + psi2
   norm = sum(sum(psi*psi.conjugate())) * abs(x[1]-x[0]) * abs(y[1]-y[0])
   psi = psi / np.sqrt(norm)
