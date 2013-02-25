@@ -482,24 +482,26 @@ class Bose:
     elif type(order) != int: return SystemError('Order must be type int')
     else: return SystemError('Invalid FEM order: order = 3, 5, 7, 9, 11 or 13')
     
+    yvec = list( self.y ) * self.npt #make y positions by sneaky list repetition
+    xvec = yvec
+    xvec.sort() # make x positions by sorting the list
+    
     data = []
     diag = []
     for jj in np.where( [ii != 0 for ii in a] )[0]:
       #Iterate over the diagonals in a that are non-zero
       #offset of jj from array centred
       off = jj - np.ceil( len( a ) /2. ) + 1.
-      data.append( a[jj] * np.ones( [ 1, self.npt ** 2 ] ) )
+      data.append( a[jj] * np.array(xvec ) )
       diag.append( off )
       
-      data.append( a[jj] * np.ones( [ 1, self.npt ** 2 ] ) )
-      diag.append( off * self.npt + off )
+      data.append( a[jj] * np.array( yvec ) )
+      diag.append( off * self.npt )
       
 
-    print diag
-    print data
-    data = np.vstack(data) #put the data in rank 2 array
-    test = spdiags( data, diag, self.npt ** 2., self.npt ** 2. )
-    print test.getrow(0),'\n\n', test.getrow(1)
+    #print diag
+    #print [ ii[0][0] for ii in data ]
+    #data = np.vstack(data) #put the data in rank 2 array
     return self.rot * spdiags( data, diag, self.npt ** 2., self.npt ** 2. )
   
 ################################################################################
