@@ -133,7 +133,7 @@ def rotatebec( a                      ,  #min co-ord
   print 'Parameters added to sims/runs.info'
   print 'Have a nice day :)'
   infile.f.close()
-  
+  bec.TFError( verbose = True )
   return None
 
 

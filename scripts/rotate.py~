@@ -33,6 +33,7 @@ from __future__ import division
 import numpy as np
 import scipy.fftpack as ff
 import scipy.linalg as la
+import fftw3
 
 from scipy.sparse import spdiags
 from scipy.special import j0, j1, jn_zeros
@@ -67,7 +68,8 @@ class Bose:
     self.X, self.Y = np.meshgrid(self.x, self.y)
     self.rad = np.sqrt( self.X ** 2. + self.Y ** 2. )
     
-    self.psi = init( self.x, self.y, g = self.g, G = self.G, **kwargs )
+    self.psi = np.zeros( [self.npt, self.npt], dtype = complex )
+    self.psi += init( self.x, self.y, g = self.g, G = self.G, **kwargs )
     self.normalise()
     
     self.ksquare , self.k = self.k2dimen()
@@ -75,9 +77,23 @@ class Bose:
     self.ker              = self.kernel()
     self.expksquare       = np.exp( -1.j * self.dt * self.ksquare )
     self.log              = np.log( self.rad )
+    self.flog             = abs( ff.fft2( ff.fftshift( -self.log ) ) )
     self.Lz               = self.Lzmake( **kwargs )
     
   #-----------------------------------------------------------------------------
+  
+  def fftwsetup( self ,
+                 nthreads = 2):
+    '''
+    '''
+    rspc = np.zeros( [self.npt, self.npt], dtype = complex )
+    fspc = np.zeros( [self.npt, self.npt], dtype = complex )
+    forw = fftw3.Plan( self.rspc, self.fspc, direction='forward', 
+                       flags=['estimate'], nthreads=nthreads )
+    back = fftw3.Plan( self.rspc, self.fspc, direction='backward', 
+                       flags=['estimate'], nthreads=nthreads )
+    return rspc, fspc, forw, back
+  
   def normalise( self ):
     '''
     normalise psi
@@ -136,9 +152,8 @@ class Bose:
     #return the convolution, after multiplying by scaled gravity and 
     #correcting for grid scaling (due to 2 forward FFTs, and only one inverse
     return self.G * self.dx * self.dy * (
-           ff.fftshift( ff.ifft2( ff.fft2( ff.fftshift( den ) ) * 
-                       abs( ff.fft2( ff.fftshift( -self.log ) ) ) ) 
-                      )                  )
+           ff.fftshift( ff.ifft2( ff.fft2( ff.fftshift( den ) ) * self.flog ) )
+                                        )
   
   #-----------------------------------------------------------------------------
   def stepRK4(self):
@@ -152,8 +167,7 @@ class Bose:
     psii   = self.psi
     
     #Linear operator parts
-    psiI = ff.fftshift( ff.ifft2( self.expksquare ** 0.5 * 
-                         ff.fft2( ff.fftshift( self.psi ) ) ) ).reshape( n2 )
+    psiI = self.intpic( self.psi ).reshape( n2 )
     
     #Nonlinear operator parts
     grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
@@ -167,40 +181,47 @@ class Bose:
     #self.psi at each step though to calculate self.gravity()
     ############################################################################
     k1 = ( self.dt * nonlin.dot( psiI ) ).reshape( sq )
-    self.psi += ( k1 / 2. )
+    self.psi[:] = self.intpic( psiI.reshape( sq ) + k1 / 2. )
     
     grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
     sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
     nonlin = self.Lz + grav + harm + sint 
     ############################################################################
     k2 = ( self.dt * nonlin.dot( psiI + k1.reshape( n2 ) / 2. ) ).reshape( sq )
-    self.psi[:] = psii + k2 / 2.
+    self.psi[:] = self.intpic( psiI.reshape( sq ) + k2 / 2. )
     
     grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
     sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
     nonlin = self.Lz + grav + harm + sint 
     ############################################################################
     k3 = ( self.dt * nonlin.dot( psiI + k2.reshape( n2 ) / 2. ) ).reshape( sq )
-    self.psi[:] = psii + k3
+    self.psi[:] = self.intpic( psiI.reshape( sq ) + k3 )
     
     grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
     sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
     nonlin = self.Lz + grav + harm + sint 
     ############################################################################
-    psiII = ff.fftshift( ff.ifft2( self.expksquare * 
-            ff.fft2( ff.fftshift( psiI.reshape( sq ) + k3 ) ) ) ).reshape( n2 )
     
-    k4 = ( self.dt * nonlin.dot( psiII ) ).reshape( sq )
+    k4 = self.dt * nonlin.dot( self.intpic( self.psi ).reshape( n2 ) 
+                             ).reshape( sq )
     
     ############################################################################
     
     
-    self.psi[:] = ff.fftshift( ff.ifft2( self.expksquare ** ( self.dt / 2) * 
-                  ff.fft2( ff.fftshift( psiI.reshape(sq) + 
-                                        (k1 + 2 * ( k2 +k3 ) + k4 ) / 6. ) ) ) )
+    self.psi[:] = self.intpic( psiI.reshape(sq) + 
+                             (k1 + 2 * ( k2 +k3 ) + k4 ) / 6. )
     if self.wick == True: self.normalise()
     return None
     
+  #-----------------------------------------------------------------------------
+  def intpic( self, field ):
+    '''
+    intpic( self, field ):
+    transform field from real space to Interaction Picture
+    '''
+    return ff.fftshift( ff.ifft2( self.expksquare ** 0.5 * 
+                         ff.fft2( ff.fftshift( field ) ) ) )
+  
   #-----------------------------------------------------------------------------
   def wickon(self):
     '''
@@ -492,10 +513,10 @@ class Bose:
       #Iterate over the diagonals in a that are non-zero
       #offset of jj from array centred
       off = jj - np.ceil( len( a ) /2. ) + 1.
-      data.append( a[jj] * np.array(xvec ) )
+      data.append( a[jj] * np.array(yvec ) )
       diag.append( off )
       
-      data.append( a[jj] * np.array( yvec ) )
+      data.append( a[jj] * np.array( xvec ) )
       diag.append( off * self.npt )
       
 
@@ -629,7 +650,7 @@ def twodsave( a                      ,  #min co-ord
     print 'Final Energies\n'
     bec.energies( verbose = True )
     print '\n Thomas-Fermi Accuracy\n'
-    bec.TFError( verbose = False )
+    bec.TFError( verbose = True )
     #bec.fgravity( verbose = True )
   
   print 'Run saved to ' + filename

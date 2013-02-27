@@ -1,0 +1,856 @@
+3c3
+< # Program:      2D BEC simulation with gravitational potential 
+---
+> # Program: 2D BEC simulation with gravitational potential
+5c5
+< # Author:       Nathanael Lampe, School of Physics, Monash University
+---
+> # Author: Nathanael Lampe, School of Physics, Monash University
+7c7
+< # Created:      December 4, 2012 (Forked from twodtrap.py)
+---
+> # Created: December 4, 2012 (Forked from twodtrap.py)
+9,23c9,26
+< # Changelog:    twodtrap.py
+< #               Aug 29, 2012: Created
+< #               Oct 11, 2012: Working, changelog begun
+< #               Oct 11, 2012: Implementation of rotation into Hamiltonian
+< #               twod.py
+< #               Dec 04, 2012: Created from twodtrap.py
+< #               Dec 12, 2012: Implemented scheme to check cnvergence against the
+< #                             chemical potential
+< #  ------------>rotate.py
+< #               Jan 24, 2013: Forked from twod.py
+< #                             Beginning conversion to RK4IP Method of
+< #                             Penckwitt (2004, PhD Thesis, Uni. of Otago, NZ)
+< #                             
+< #                             
+< #                             
+---
+> # Changelog: twodtrap.py
+> # Aug 29, 2012: Created
+> # Oct 11, 2012: Working, changelog begun
+> # Oct 11, 2012: Implementation of rotation into Hamiltonian
+> # twod.py
+> # Dec 04, 2012: Created from twodtrap.py
+> # Dec 12, 2012: Implemented scheme to check cnvergence against the
+> # chemical potential
+> # ------------>rotate.py
+> # Jan 24, 2013: Forked from twod.py
+> # Beginning conversion to RK4IP Method of
+> # Penckwitt (2004, PhD Thesis, Uni. of Otago, NZ)
+> #
+> #
+> #
+> #
+> # Purpose: Provide a function to evaluate the stability of a
+> # gravitationally bound BEC under varying trap strengths
+25,27d27
+< # Purpose:      Provide a function to evaluate the stability of a 
+< #               gravitationally bound BEC under varying trap strengths
+< #               
+40c40
+< from trapsave import *
+---
+> from traphdf5 import *
+45a46,82
+> def k_vector( n, extent ):
+>   '''Usual FFT format k vector (as in Numerical Recipes)'''
+>   delta = float(extent) / float(n-1)
+>   k_pos = np.arange( 0, n/2+1, dtype = float)
+>   k_neg = np.arange( -n/2+1, 0, dtype = float)
+>   return (2*np.pi/n/delta) * np.concatenate( (k_pos,k_neg) )
+> 
+> ################################################################################
+> 
+> def k2dimen(a,b,npt):
+>   k_vec = k_vector(npt, b - a )
+>   KX, KY = np.meshgrid ( k_vec, k_vec )
+>   k2squared = KX ** 2. + KY ** 2.
+>   k2 = np.sqrt( k2squared )
+>   
+>   #k_vec = k_vector(npt, b - a )
+>   #k2d = np.zeros([npt,npt])
+>   #kf2 = np.zeros([npt,npt])
+>   #for ii in range(0,npt):
+>     #for jj in range(0,npt):
+>       #kf2[ii,jj] = k_vec[ii]**2+k_vec[jj]**2
+>       #k2d[ii,jj] = np.sqrt(kf2[ii,jj])
+>   k2[ npt/2:npt, 0:npt/2 ] = -k2[ npt/2:npt, 0:npt/2 ]
+>   k2[ 0:npt/2 , npt/2:npt ] = -k2[ 0:npt/2 , npt/2:npt ]
+>   return k2squared, k2
+> 
+> ################################################################################
+> 
+> 
+> 
+> ################################################################################
+> 
+> def harm_trap( x, y, P ):
+>   X, Y = np.meshgrid(x,y)
+>   return 0.5 * P * ( X**2 + Y**2 )
+> 
+> ################################################################################
+47c84,86
+< class Bose:
+---
+> def kernel( x ,
+>             y ,
+>             npt ):
+49,51c88,98
+<   Establish the Bose class
+<   The Bose class defines an item that contains most relevant arrays
+<   that are passed to functions. Many of these are to optimise the routine
+---
+> Define the grid 1/abs(r)
+> '''
+>   ker = np.zeros([npt,npt])
+>   for ii in range(0,npt):
+>     for jj in range(0,npt):
+>       ker[ii,jj] = abs(1./np.sqrt(x[ii]**2.+y[jj]**2.))
+>   return ker
+> 
+> ################################################################################
+>   
+> class Bose:
+52a100,103
+> Establish the Bose class
+> The Bose class defines an item that contains most relevant arrays
+> that are passed to functions. Many of these are to optimise the routine
+> '''
+56,61c107,112
+<     self.npt  = npt
+<     self.P    = P
+<     self.g    = g
+<     self.G    = G
+<     self.rot  = rot
+<     self.dt   = dt
+---
+>     self.npt = npt
+>     self.P = P
+>     self.g = g
+>     self.G = G
+>     self.rot = rot
+>     self.dt = dt
+63c114
+<     self.x  = np.linspace( self.xmin, self.xmax, npt )
+---
+>     self.x = np.linspace( self.xmin, self.xmax, npt )
+65c116
+<     self.y  = self.x
+---
+>     self.y = self.x
+68d118
+<     self.rad = np.sqrt( self.X ** 2. + self.Y ** 2. )
+70,71c120,124
+<     self.psi = init( self.x, self.y, g = self.g, G = self.G, **kwargs )
+<     self.normalise()
+---
+>     self.psi = init ( self.x, self.y, self.npt, **kwargs )
+>     self.psi = self.psi / np.sqrt( sum(
+>                                                    sum ( abs( self.psi ) ** 2. )
+>                                                    ) * self.dx * self.dy )
+>                           #This ensures the wavefunction is normalised
+73,78c126,128
+<     self.ksquare , self.k = self.k2dimen()
+<     self.V                = self.harm_trap()
+<     self.ker              = self.kernel()
+<     self.expksquare       = np.exp( -1.j * self.dt * self.ksquare )
+<     self.log              = np.log( self.rad )
+<     self.Lz               = self.Lzmake( **kwargs )
+---
+>     self.ksquare , self.k = k2dimen ( self.xmin, self.xmax, self.npt )
+>     self.V = harm_trap ( self.x, self.y, self.P )
+>     self.ker = kernel ( self.x, self.y, self.npt )
+80,95c130
+<   #-----------------------------------------------------------------------------
+<   def normalise( self ):
+<     '''
+<     normalise psi
+<     call normalise() to normalise the wavefunction
+<     return is None
+<     '''
+<     self.psi = self.psi / np.sqrt( sum( sum ( abs( self.psi ) ** 2. ) )
+<              * self.dx * self.dy )
+<     return None
+<   #-----------------------------------------------------------------------------
+<   def k_vector( self ):
+<     '''Usual FFT format k vector (as in Numerical Recipes)'''
+<     delta = float( self.xmax - self.xmin ) / float( self.npt - 1 )
+<     k_pos = np.arange(      0, self.npt/2+1, dtype = float)
+<     k_neg = np.arange( -self.npt/2+1,     0, dtype = float)
+---
+>     self.expksquare = np.exp ( -0.5j * self.dt * self.ksquare )
+97,111c132,134
+<     return (2*np.pi/self.npt/delta) * np.concatenate( (k_pos,k_neg) )
+< 
+<   #-----------------------------------------------------------------------------
+<   def k2dimen( self ):
+<     '''
+<     2d fft k-array, returns k^2, k both in 2d
+<     '''
+<     k_vec = self.k_vector()
+<     KX, KY = np.meshgrid ( k_vec, k_vec )
+<     k2squared = KX ** 2. + KY ** 2.
+<     k2 = np.sqrt( k2squared )
+<     k2[ self.npt/2:self.npt, 0:self.npt/2   ] = \
+<                                       -k2[ self.npt/2:self.npt, 0:self.npt/2   ]
+<     k2[ 0:self.npt/2  , self.npt/2:self.npt ] = \
+<                                       -k2[ 0:self.npt/2  , self.npt/2:self.npt ]
+---
+>     self.log = np.log( np.sqrt( self.X ** 2. + self.Y ** 2. ) )
+>     
+>     self.Lz = self.Lzmake( order = 3. )
+113,126d135
+<     return k2squared, k2
+< 
+<   #-----------------------------------------------------------------------------
+<   def harm_trap( self ):
+<     '''Harmonic potential,return 0.5 * self.P * self.rad ** 2.'''
+<     return 0.5 * self.P * self.rad ** 2.
+< 
+<   #-----------------------------------------------------------------------------
+<   def kernel( self ):
+<     '''
+<     Define the grid 1/abs(r)
+<     '''
+<     return abs( 1. / self.rad )
+< 
+128,132c137,138
+< 
+<   def gravity( self ):
+<     '''
+<     Evaluate the gravitational field, with a call to Bose.gravity()
+<     Gravitaional field is the convolution of the density and the log of distance
+---
+>   
+>   def gravity(self):
+134c140,143
+<     den = abs(self.psi)**2.  #calculate the probability density
+---
+> Evaluate the gravitational field, with a call to Bose.gravity()
+> Gravitaional field is the convolution of the density and the log of distance
+> '''
+>     den = abs(self.psi)**2. #calculate the probability density
+136c145
+<     #return the convolution, after multiplying by scaled gravity and 
+---
+>     #return the convolution, after multiplying by scaled gravity and
+139,141c148,150
+<            ff.fftshift( ff.ifft2( ff.fft2( ff.fftshift( den ) ) * 
+<                        abs( ff.fft2( ff.fftshift( -self.log ) ) ) ) 
+<                       )                  )
+---
+>            ff.fftshift( ff.ifft2( ff.fft2( ff.fftshift( den ) ) *
+>                        abs( ff.fft2( ff.fftshift( -self.log ) ) ) )
+>                       ) )
+146,152c155,156
+<     Perform a timestep using the RK4 Interaction Picture
+<     This routine also considers real/imaginary parts
+<     '''
+<     n2 = self.npt ** 2.
+<     sq = [ self.npt, self.npt ]
+<     
+<     psii   = self.psi
+---
+> Perform a timestep using the RK4 Interaction Picture
+> '''
+153a158
+>     psii = self.psi.reshape( n2 )
+155c160
+<     psiI = ff.fftshift( ff.ifft2( self.expksquare ** 0.5 * 
+---
+>     psiI = ff.fftshift( ff.ifft2( self.expksquare ** ( self.dt / 2 ) *
+158,202c163,164
+<     #Nonlinear operator parts
+<     grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
+<     harm = spdiags( -1.j * self.V.reshape( n2 ), 0, n2, n2 )
+<     sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+<     
+<     nonlin = self.Lz + grav + harm + sint 
+<     
+<     #timesteps - note, we need to keep the pointer to self.psi the same
+<     #as this is requried if FFTW is ever implemented. We still need to update
+<     #self.psi at each step though to calculate self.gravity()
+<     ############################################################################
+<     k1 = ( self.dt * nonlin.dot( psiI ) ).reshape( sq )
+<     self.psi += ( k1 / 2. )
+<     
+<     grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
+<     sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+<     nonlin = self.Lz + grav + harm + sint 
+<     ############################################################################
+<     k2 = ( self.dt * nonlin.dot( psiI + k1.reshape( n2 ) / 2. ) ).reshape( sq )
+<     self.psi[:] = psii + k2 / 2.
+<     
+<     grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
+<     sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+<     nonlin = self.Lz + grav + harm + sint 
+<     ############################################################################
+<     k3 = ( self.dt * nonlin.dot( psiI + k2.reshape( n2 ) / 2. ) ).reshape( sq )
+<     self.psi[:] = psii + k3
+<     
+<     grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
+<     sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+<     nonlin = self.Lz + grav + harm + sint 
+<     ############################################################################
+<     psiII = ff.fftshift( ff.ifft2( self.expksquare * 
+<             ff.fft2( ff.fftshift( psiI.reshape( sq ) + k3 ) ) ) ).reshape( n2 )
+<     
+<     k4 = ( self.dt * nonlin.dot( psiII ) ).reshape( sq )
+<     
+<     ############################################################################
+<     
+<     
+<     self.psi[:] = ff.fftshift( ff.ifft2( self.expksquare ** ( self.dt / 2) * 
+<                   ff.fft2( ff.fftshift( psiI.reshape(sq) + 
+<                                         (k1 + 2 * ( k2 +k3 ) + k4 ) / 6. ) ) ) )
+<     if self.wick == True: self.normalise()
+<     return None
+---
+>     psiII = ff.fftshift( ff.ifft2( self.expksquare ** ( self.dt ) *
+>                           ff.fft2( ff.fftshift( self.psi ) ) ) ).reshape( n2 )
+203a166,183
+>     #Nonlinear operator parts
+>     n2 = self.npt ** 2.
+>     grav = spdiags( self.gravity().reshape( n2 ), 0, n2, n2 )
+>     harm = spdiags( self.V.reshape( n2 ), 0, n2, n2 )
+>     sint = spdiags( self.g * psii, 0, n2, n2 )
+>     
+>     nonlin = self.Lz + grav + harm + sint
+>     
+>     #timesteps - note, we are not updating the SI and gravity at each step
+>     #need to do this!
+>     k1 = self.dt * nonlin * psiI * psii
+>     k2 = self.dt * nonlin * ( psiI + k1 / 2. )
+>     k3 = self.dt * nonlin * ( psiI + k2 / 2. )
+>     k4 = self.dt * nonlin * ( psiII + k3 )
+>     
+>     return ff.fftshift( ff.ifft2( self.expksquare ** ( self.dt / 2) *
+>            ff.fft2( ff.fftshift( self.psi + (k1 + 2 * ( k2 +k3 ) + k4 ) / 6. ) )
+>                    ) ).reshape( [ self.npt, self.npt ] )
+207,212c187,190
+<     simple function to ensure imaginary time propagation
+<     '''
+<     self.dt               = -1j * abs( self.dt )
+<     self.expksquare       = np.exp( -1.j * self.dt * self.ksquare )
+<     self.wick             = True #internal tracker of current wick state
+<     return None
+---
+> simple function to ensure imaginary time propagation
+> '''
+>     self.dt = -1j * abs(self.dt)
+>     self.expksquare = np.exp( -0.5j * self.dt * self.ksquare )
+217,222c195,198
+<     simple function to ensure real time propagation
+<     '''
+<     self.dt               = abs( self.dt )
+<     self.expksquare       = np.exp( -1.j * self.dt * self.ksquare )
+<     self.wick             = False #internal tracker of current wick state
+<     return None
+---
+> simple function to ensure real time propagation
+> '''
+>     self.dt = abs(self.dt)
+>     self.expksquare = np.exp( -0.5j * self.dt * self.ksquare )
+225c201
+<   def energies( self            ,
+---
+>   def energies( self ,
+228,232c204,208
+<     energies(self, verbose = False)
+<     bec is an instance of the Bose class
+<     Returns the list of energies enList = [ Ev, Ei, Eg, Ekin ]
+<     This is the harmonic, interaction, gravitational and kinetic energies
+<     '''
+---
+> energies(self, verbose = False)
+> bec is an instance of the Bose class
+> Returns the list of energies enList = [ Ev, Ei, Eg, Ekin ]
+> This is the harmonic, interaction, gravitational and kinetic energies
+> '''
+244c220
+<     Ekin = sum( 
+---
+>     Ekin = sum(
+246,247c222,223
+<         self.psi.conjugate() * ff.fftshift( ff.ifft2( 0.5 * self.ksquare * 
+<                                             ff.fft2( ff.fftshift( self.psi ) ) ) 
+---
+>         self.psi.conjugate() * ff.fftshift( ff.ifft2( 0.5 * self.ksquare *
+>                                             ff.fft2( ff.fftshift( self.psi ) ) )
+274,280c250,256
+<       print 'Harmonic PE         = ', np.real( enList[0] )
+<       print 'Interaction PE      = ', np.real( enList[1] )
+<       print 'Gravitational PE    = ', np.real( enList[2] )
+<       print 'Potential Energy    = ', np.real( sum( enList[0:3] ) )
+<       print 'Kinetic Energy      = ', np.real( enList[3] )
+<       print 'Total Energy        = ', np.real( sum( enList ) )
+<       print 'normalisation       = ', np.real( sum( sum( abs( self.psi ) ** 2. ) 
+---
+>       print 'Harmonic PE = ', np.real( enList[0] )
+>       print 'Interaction PE = ', np.real( enList[1] )
+>       print 'Gravitational PE = ', np.real( enList[2] )
+>       print 'Potential Energy = ', np.real( sum( enList[0:3] ) )
+>       print 'Kinetic Energy = ', np.real( enList[3] )
+>       print 'Total Energy = ', np.real( sum( enList ) )
+>       print 'normalisation = ', np.real( sum( sum( abs( self.psi ) ** 2. )
+282c258
+<       print 'Chemical Potential  = ', np.real( enList[3] + enList[0] + 
+---
+>       print 'Chemical Potential = ', np.real( enList[3] + enList[0] +
+284c260
+<       print 'Ek - Ev + Ei - G/4  = ', np.real( enList[3] - enList[0] + enList[1]
+---
+>       print 'Ek - Ev + Ei - G/4 = ', np.real( enList[3] - enList[0] + enList[1]
+286c262
+<       print 'Laplace Eq check    = ', np.real( sum( sum( glpg - glpd ) ) )
+---
+>       print 'Laplace Eq check = ', np.real( sum( sum( glpg - glpd ) ) )
+293,298c269,274
+<     TFError( self, verbose = False):
+<     A function to evaluate the deviation of the solution from the Thomas-Fermi
+<     approximation.
+<     Setting verbose to true will produce plots of the wavefunction and TF 
+<     approximation
+<     '''
+---
+> TFError( self, verbose = False):
+> A function to evaluate the deviation of the solution from the Thomas-Fermi
+> approximation.
+> Setting verbose to true will produce plots of the wavefunction and TF
+> approximation
+> '''
+301,302c277,278
+<     #mu    = <K>       + <Vext>    + 2 * <Vsi>     + 0.5 * <Vgrav>
+<     fineX = np.arange(self.xmin , self.xmax, (self.xmax - self.xmin) / 
+---
+>     #mu = <K> + <Vext> + 2 * <Vsi> + 0.5 * <Vgrav>
+>     fineX = np.arange(self.xmin , self.xmax, (self.xmax - self.xmin) /
+305,307c281,283
+<     X, Y  = np.meshgrid( self.x, self.y )
+<     Rsq   = X ** 2. + Y ** 2.
+<     R     = np.sqrt( Rsq )
+---
+>     X, Y = np.meshgrid( self.x, self.y )
+>     Rsq = X ** 2. + Y ** 2.
+>     R = np.sqrt( Rsq )
+313,314c289,290
+<       r0sq   = 2 * chmpot / self.P
+<       tfsol  = (chmpot / self.g - Rsq * self.P / ( 2 * self.g ) ) * ( 
+---
+>       r0sq = 2 * chmpot / self.P
+>       tfsol = (chmpot / self.g - Rsq * self.P / ( 2 * self.g ) ) * (
+319c295
+<       print 'TF Error per cell  = ', tferror / self.npt ** 2.
+---
+>       print 'TF Error per cell = ', tferror / self.npt ** 2.
+324c300
+<         tfx  = (chmpot / self.g - fineX ** 2. * self.P / ( 2 * self.g ) ) * ( 
+---
+>         tfx = (chmpot / self.g - fineX ** 2. * self.P / ( 2 * self.g ) ) * (
+326c302
+<                                           fineX )                           )
+---
+>                                           fineX ) )
+341,344c317,320
+<       bj0z1   = jn_zeros( 0, 1 ) #First zero of zeroth order besselj
+<       scaling = np.sqrt( 2 * np.pi * self.G / self.g  )
+<       gr0     = bj0z1 / scaling
+<       Rprime  = R * scaling
+---
+>       bj0z1 = jn_zeros( 0, 1 ) #First zero of zeroth order besselj
+>       scaling = np.sqrt( 2 * np.pi * self.G / self.g )
+>       gr0 = bj0z1 / scaling
+>       Rprime = R * scaling
+346c322
+<       gtfsol = j0( Rprime ) * np.array( [ map( int,ii ) for ii in map( 
+---
+>       gtfsol = j0( Rprime ) * np.array( [ map( int,ii ) for ii in map(
+354c330
+<       gtferror = np.real( sum( sum( gtfsol - abs( self.psi ) ** 2. ) ) ) 
+---
+>       gtferror = np.real( sum( sum( gtfsol - abs( self.psi ) ** 2. ) ) )
+356c332
+<       print 'Grav. TF Error     = ', gtferror
+---
+>       print 'Grav. TF Error = ', gtferror
+358c334
+<       print 'Analytic norm      = ', sum( sum( gtfsol ) ) * self.dx * self.dy
+---
+>       print 'Analytic norm = ', sum( sum( gtfsol ) ) * self.dx * self.dy
+366c342
+<         Ei = sum( sum( 0.5 * self.g * abs(gtfwf) ** 4. ) 
+---
+>         Ei = sum( sum( 0.5 * self.g * abs(gtfwf) ** 4. )
+370,372c346,348
+<                  ff.fftshift( ff.ifft2( ff.fft2( ff.fftshift( gtfsol ) ) * 
+<                        abs( ff.fft2( ff.fftshift( -self.log ) ) ) ) 
+<                             )                 )
+---
+>                  ff.fftshift( ff.ifft2( ff.fft2( ff.fftshift( gtfsol ) ) *
+>                        abs( ff.fft2( ff.fftshift( -self.log ) ) ) )
+>                             ) )
+375,377c351,353
+<         Ekin = sum( sum( gtfwf.conjugate() * 
+<                          ff.fftshift( ff.ifft2( 0.5 * self.ksquare * 
+<                          ff.fft2( ff.fftshift( gtfwf ) ) ) 
+---
+>         Ekin = sum( sum( gtfwf.conjugate() *
+>                          ff.fftshift( ff.ifft2( 0.5 * self.ksquare *
+>                          ff.fft2( ff.fftshift( gtfwf ) ) )
+386,392c362,368
+<         print 'Harmonic PE         = ', np.real( TFList[0] )
+<         print 'Interaction PE      = ', np.real( TFList[1] )
+<         print 'Gravitational PE    = ', np.real( TFList[2] )
+<         print 'Potential Energy    = ', np.real( sum( TFList[0:3] ) )
+<         print 'Kinetic Energy      = ', np.real( TFList[3] )
+<         print 'Total Energy        = ', np.real( sum( TFList ) )
+<         print 'Chemical Potential  = ', np.real( TFList[3] + TFList[0] + 
+---
+>         print 'Harmonic PE = ', np.real( TFList[0] )
+>         print 'Interaction PE = ', np.real( TFList[1] )
+>         print 'Gravitational PE = ', np.real( TFList[2] )
+>         print 'Potential Energy = ', np.real( sum( TFList[0:3] ) )
+>         print 'Kinetic Energy = ', np.real( TFList[3] )
+>         print 'Total Energy = ', np.real( sum( TFList ) )
+>         print 'Chemical Potential = ', np.real( TFList[3] + TFList[0] +
+394c370
+<         print 'Ek - Ev + Ei - G/4  = ', np.real( TFList[3] - TFList[0] +
+---
+>         print 'Ek - Ev + Ei - G/4 = ', np.real( TFList[3] - TFList[0] +
+419,420c395,396
+<   def converge( self            ,
+<                 tol             ,
+---
+>   def converge( self ,
+>                 tol ,
+423,430c399,406
+<     def converge( self            ,
+<                   tol             , #tolerance
+<                   verbose = False ):
+<     A routine to check if the ground state has been reached.
+<     Returns true if virial <= tol (tolerance.
+<     Verbose will print the virial.
+<     virial = 'Ek - Ev + Ei - G/4'
+<     '''
+---
+> def converge( self ,
+> tol , #tolerance
+> verbose = False ):
+> A routine to check if the ground state has been reached.
+> Returns true if virial <= tol (tolerance.
+> Verbose will print the virial.
+> virial = 'Ek - Ev + Ei - G/4'
+> '''
+436,448c412,413
+<   def Lzmake( self       ,
+<               order = 3  ,
+<               **kwargs   ):
+<     '''
+<     def Lzmake( self       ,
+<                 order = 3  ,
+<                 **kwargs   ):
+<     A routine to return Lz, the angular momentum finite difference matrix.
+<     Derivatives are from the PhD thesis of Andreas Penckwitt, PhD Thesis 2004
+<     Rotating Bose Einstein Condensates: Vortex Lattices and Excitations"
+<     www.physics.otago.ac.nz/nx/jdc/jdc-thesis-page.html"
+<     He also explains the RK4IP timestepping method
+<     Note that we worry about imaginary/real values in the timestepping
+---
+>   def Lzmake( self ,
+>               order = 3 ):
+450,453c415,420
+<     assert order in [ 3, 5, 7, 9, 11, 13 ],\
+<       'Only order values contained in [ 3, 5, 7, 9, 11, 13 ] are implemented\
+<      \nthus far.'
+<     
+---
+> A routine to return Lz, the angular momentum finite difference matrix.
+> Derivatives are from:
+> Generation of finite difference formulas on arbitrarily spaced grids
+> Fornberg, B.,Generation of finite difference formulas on arbitrarily spaced
+> grids, Math. Comp. 51 (1988), 699-706
+> '''
+456c423
+<       a = np.array( [ 0., 0., 0., 0., 0., -1., 0., 1., 0., 0., 0., 0., 0. ] )
+---
+>       a = [ 0, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, 0, 0 ]
+460c427
+<       a = np.array( [ 0., 0., 0., 0., 1., -8., 0., 8., -1., 0., 0., 0., 0. ] )
+---
+>       a = [ 0, 0, 0, 0, 1, -8, 0, 8, -1, 0, 0, 0, 0 ]
+464c431
+<       a = np.array( [ 0., 0., 0., -1., 9., -45., 0., 45., -9., 1., 0., 0., 0. ] )
+---
+>       a = [ 0, 0, 0, -1, 9, -45, 0, 45, -9, 1, 0, 0, 0 ]
+468c435
+<       a = np.array( [ 0., 0., 3., -32., 168., -672., 0., 672., -168., 32., -3., 0., 0. ] )
+---
+>       a = [ 0, 0, 3, -32, 168, -672, 0, 672, -168, 32, -3, 0, 0 ]
+472,473c439
+<       a = np.array( [ 0., -2., 25., -150., 600., -2100., 0.,
+<                       2100., -600., 150., -25., 2., 0. ] )
+---
+>       a = [ 0, -2, 25, -150, 600, -2100, 0, 2100, -600, 150, -25, 2, 0 ]
+477,478c443,444
+<       a = np.array( [ 5., -72., 495., -2200., 7425., -23760., 0.,
+<                       23760., -7425., 2200., -495., 72., -5. ] )
+---
+>       a = [ 5, -72, 495, -2200, 7425, -23760, 0,
+>             23760, -7425, 2200, -495, 72, -5 ]
+485,488d450
+<     yvec = list( self.y ) * self.npt #make y positions by sneaky list repetition
+<     xvec = yvec
+<     xvec.sort() # make x positions by sorting the list
+<     
+491c453
+<     for jj in np.where( [ii != 0 for ii in a] )[0]:
+---
+>     for jj in where([ii != 0 for ii in a])[0]:
+494,495c456,457
+<       off = jj - np.ceil( len( a ) /2. ) + 1.
+<       data.append( a[jj] * np.array(yvec ) )
+---
+>       off = jj - np.ceil( jj/2. )
+>       data.append( a[jj] * np.ones( [self.npt ** 2, 1] ) )
+498,505c460,466
+<       data.append( a[jj] * np.array( xvec ) )
+<       diag.append( off * self.npt )
+<       
+< 
+<     #print diag
+<     #print [ ii[0][0] for ii in data ]
+<     #data = np.vstack(data) #put the data in rank 2 array
+<     return self.rot * spdiags( data, diag, self.npt ** 2., self.npt ** 2. )
+---
+>       data.append( a[jj] * np.ones( [self.npt ** 2, 1] ) )
+>       diag.append( self.npt + off )
+>     
+>     Lz = spdiags( data, diag, self.npt ** 2., self.npt ** 2. )
+>     
+>     
+>     return Lz #we assume dx=dy
+510,547c471,486
+< def twodsave( a                      ,  #min co-ord
+<               b                      ,  #max co-ord
+<               npt                    ,  #no. gridpoints
+<               dt                     ,  #timestep
+<               tstop                  ,  #time to stop
+<               g                      ,  #s-wave scattering strength
+<               G                      ,  #gravitational field scaled strength
+<               rot                    ,  #angular momentum in system
+<               filename = autof       ,  #output filename, autof for automatic naming
+<               P        = 0.          ,  #optional harmonic potential
+<               wick     = False       ,  #Wick rotation True/False
+<               init     = vortexgauss ,  #initial wavefunction shape (function call)
+<               skip     = 1.          ,  #intervals to skip when saving
+<               energies = False       ,  #print initial and final energy
+<               erase    = False       ,  #overwrite existing files True/False
+<               **kwargs                ):
+<   '''
+<   save the result of a gravitational simulation of a BEC
+<   saved file is a hd5 database
+<   SYNTAX:
+<     def twodsave( a                      ,  #min co-ord
+<                   b                      ,  #max co-ord
+<                   npt                    ,  #no. gridpoints
+<                   dt                     ,  #timestep
+<                   tstop                  ,  #time to stop
+<                   g                      ,  #s-wave scattering strength
+<                   G                      ,  #gravitational field scaled strength
+<                   rot                    ,  #angular momentum in system
+<                   filename = autof       ,  #output filename, autof for 
+<                                             #automatic naming
+<                   P        = 0.          ,  #optional harmonic potential
+<                   wick     = False       ,  #Wick rotation True/False
+<                   init     = vortexgauss ,  #initial wavefunction shape 
+<                                             #(function call)
+<                   skip     = 1.          ,  #intervals to skip when saving
+<                   energies = False       ,  #print initial and final energy
+<                   erase    = False       ,  #overwrite existing files True/False
+<                   **kwargs                ):
+---
+> def twodsave( a , #min co-ord
+>               b , #max co-ord
+>               npt , #no. gridpoints
+>               dt , #timestep
+>               tstop , #time to stop
+>               g , #s-wave scattering strength
+>               G , #gravitational field scaled strength
+>               rot , #angular momentum in system
+>               filename = autof , #output filename, autof for automatic naming
+>               P = 0. , #optional harmonic potential
+>               wick = False , #Wick rotation True/False
+>               init = vortexgauss , #initial wavefunction shape (function call)
+>               skip = 1. , #intervals to skip when saving
+>               energies = False , #print initial and final energy
+>               erase = False , #overwrite existing files True/False
+>               **kwargs ):
+548a488,509
+> save the result of a gravitational simulation of a BEC
+> saved file is a hd5 database
+> SYNTAX:
+> def twodsave( a , #min co-ord
+> b , #max co-ord
+> npt , #no. gridpoints
+> dt , #timestep
+> tstop , #time to stop
+> g , #s-wave scattering strength
+> G , #gravitational field scaled strength
+> rot , #angular momentum in system
+> filename = autof , #output filename, autof for
+> #automatic naming
+> P = 0. , #optional harmonic potential
+> wick = False , #Wick rotation True/False
+> init = vortexgauss , #initial wavefunction shape
+> #(function call)
+> skip = 1. , #intervals to skip when saving
+> energies = False , #print initial and final energy
+> erase = False , #overwrite existing files True/False
+> **kwargs ):
+> '''
+552,563c513,524
+<   h = dict( {'G'        : G                    ,
+<              'g'        : g                    ,
+<              'rot'      : rot                  ,
+<              'P'        : P                    ,
+<              'wick'     : wick                 ,
+<              'dt'       : dt                   ,
+<              'tstop'    : tstop                ,
+<              'xmin'     : a                    ,
+<              'xmax'     : b                    ,
+<              'npt'      : npt                  ,
+<              'skipstep' : skip                 ,
+<              'steps'    : (tstop // dt) // skip } )
+---
+>   h = dict( {'G' : G ,
+>              'g' : g ,
+>              'rot' : rot ,
+>              'P' : P ,
+>              'wick' : wick ,
+>              'dt' : dt ,
+>              'tstop' : tstop ,
+>              'xmin' : a ,
+>              'xmax' : b ,
+>              'npt' : npt ,
+>              'skipstep' : skip ,
+>              'steps' : (tstop // dt) // skip } )
+578c539
+<   bec = Bose( a, b, int(npt), init, g, G, rot, P, dt, **kwargs)  
+---
+>   bec = Bose( a, b, int(npt), init, g, G, rot, P, dt, **kwargs)
+584c545
+<     bec.wickon()  
+---
+>     bec.wickon()
+586c547
+<   if wick == False: #propogate for a brief time in wick space to remove 
+---
+>   if wick == False: #propogate for a brief time in wick space to remove
+595c556
+<     bec.dt = dt   #MUST GO BEFORE wickoff
+---
+>     bec.dt = dt #MUST GO BEFORE wickoff
+604,606c565,567
+<   norm      = sum(sum( bec.psi * ( bec.psi ).conjugate() )) * bec.dx * bec.dy
+<   bec.psi   = bec.psi / np.sqrt( norm )
+<   #wavefunction normalised so probability = 1  
+---
+>   norm = sum(sum( bec.psi * ( bec.psi ).conjugate() )) * bec.dx * bec.dy
+>   bec.psi = bec.psi / np.sqrt( norm )
+>   #wavefunction normalised so probability = 1
+612c573
+<   saves       = 0.
+---
+>   saves = 0.
+618,619c579,580
+<     if wick == True:  #normalise after Wick rotation
+<       norm  = sum( sum( abs( bec.psi )**2 ) ) * bec.dx * bec.dy
+---
+>     if wick == True: #normalise after Wick rotation
+>       norm = sum( sum( abs( bec.psi )**2 ) ) * bec.dx * bec.dy
+638a600,681
+> 
+> ################################################################################
+> def twod( a ,
+>           b ,
+>           npt ,
+>           dt ,
+>           tstop ,
+>           g ,
+>           G ,
+>           rot ,
+>           P = 0. ,
+>           wick = False ,
+>           init = gauss ,
+>           analysis = False ,
+>           **kwargs ):
+>   '''
+> Return the result of a gravitational simulation of a BEC
+> xvals, tvals, psi = oned(a,b,npt,dt,tstop,g,G,P=0.,wick=False):
+> a = xmin
+> b = xmax
+> npt = spatial steps
+> dt = timestep size
+> tstop = stopping time
+> g = s-wave self-interaction strenth
+> G = gravitational interaction strength
+> P = harmonic potential strength (default 0)
+> '''
+>   
+>   bec = Bose( a, b, int(npt), init, g, G, rot, P, dt, **kwargs)
+>   
+>   if wick == True : bec.wickon() #Wick Rotation
+>   
+>   #normalise the wavefunction
+>   norm = sum(sum( bec.psi * ( bec.psi ).conjugate() )) * bec.dx * bec.dy
+>   bec.psi = bec.psi / np.sqrt( norm )
+>   #wavefunction normalised so probability = 1
+>   
+>   print '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
+>   print 'Initial Energies'
+>   Epot, Ekin = energies(bec)
+>   print '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
+>   Einit = Epot+Ekin
+>   
+>   #prepare data output arrays
+>   gravout = [bec.gravity()]
+>   results = [bec.psi]
+>     
+>   jj = int(0) #A simple counter
+>   stable = False #Changes to true when the routine converges under
+>                   #Wick rotation, if the analysis function is active
+>   
+>   # time-evolution
+>   for t in np.arange(0,tstop,dt):
+>   
+>     bec.psi = bec.step4()
+>     
+>     if wick == True:
+>       norm = sum( sum( abs( bec.psi )**2 ) ) * bec.dx * bec.dy
+>       bec.psi = bec.psi / np.sqrt(norm)
+>     
+>     results.append(bec.psi)
+>     gravout.append(bec.gravity())
+>     
+>     if jj == (100 * (jj // 100)):
+>       
+>       #print '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
+>       #print 'Energies at', jj
+>       #oldE = Epot + Ekin
+>       #Epot, Ekin = energies(bec)
+>       #print '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
+>       
+>       if wick == True and analysis == True and abs(Epot + Ekin - oldE) < 1e-4:
+>         stable = True
+>         break
+>     jj += 1
+>     
+>   print '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
+>   print 'Final Energies'
+>   Epot, Ekin = energies(bec)
+>   print '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
+>   
+>   return bec, np.arange(0,jj*dt,dt), results, gravout, stable
+\ No newline at end of file

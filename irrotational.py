@@ -474,16 +474,117 @@ def twobec( a                      ,  #min co-ord
   
   return None
   
-def phasediagram():
+def onebec( a                      ,  #min co-ord
+            b                      ,  #max co-ord
+            npt                    ,  #no. gridpoints
+            dt                     ,  #timestep
+            tstop                  ,  #time to stop
+            g                      ,  #s-wave scattering strength
+            G                      ,  #gravitational field scaled strength
+            rot      = 0.          ,  #angular momentum in system
+            filename = autof       ,  #output filename, autof for automatic naming
+            P        = 0.          ,  #optional harmonic potential
+            init     = gravground  ,  #initial wavefunction shape (function call)
+            skip     = 1.          ,  #intervals to skip when saving
+            erase    = False       ,  #overwrite existing files True/False
+            tol      = 0.1         ,  #convergence tolerance
+            k        = [0., 1.]    ,  #direction of initial 'kick', [kx,ky]
+            wick     = False       ,  #wick rotation
+            **kwargs                ):
   '''
-  A static function currently to produce a 'phase diagram' of stability
+  save the result of a gravitational simulation of a BEC
+  saved file is a hd5 database
+  SYNTAX:
+  def twobec( a                      ,  #min co-ord
+              b                      ,  #max co-ord
+              npt                    ,  #no. gridpoints
+              dt                     ,  #timestep
+              tstop                  ,  #time to stop
+              g                      ,  #s-wave scattering strength
+              G                      ,  #gravitational field scaled strength
+              rot      = 0.          ,  #angular momentum in system
+              filename = autof       ,  #output filename, autof for automatic naming
+              P        = 0.          ,  #optional harmonic potential
+              init     = gravground  ,  #initial wavefunction shape (function call)
+              skip     = 1.          ,  #intervals to skip when saving
+              erase    = False       ,  #overwrite existing files True/False
+              tol      = 0.1         ,  #convergence tolerance
+              wick     = False       ,  #wick rotation
+              **kwargs                ):
   '''
-  gvals = 10 ** np.linspace( -2., 3., 20. )
-  Gvals = 10 ** np.linspace( -2., 3., 20. )
-  for g in gvals:
-    for G in Gvals:
-      
+  #initial setup ---------------------------------------------------------------
+  
+  #Prepare parameters for database
+  h = dict( {'G'        : G                    ,
+             'g'        : g                    ,
+             'rot'      : rot                  ,
+             'P'        : P                    ,
+             'dt'       : dt                   ,
+             'tstop'    : tstop                ,
+             'xmin'     : a                    ,
+             'xmax'     : b                    ,
+             'wick'     : wick                 ,
+             'npt'      : npt                  ,
+             'skipstep' : skip                 ,
+             'steps'    : (tstop // dt) // skip,
+             'tol'      : tol                  } )
+  h = dict( h.items() + kwargs.items() ) #merge the dictionaries
+  
+  if filename == autof: #automatically add run to database, and name file
+    filename = autof(h, folder = 'twobec')
+  else: #custom filename
+    if type(filename) != str: return SystemError('Filename should be a string')
+  
+  #Make a condensate
+  bec = Bose( a, b, int(npt), init, g, G, rot, P, dt, **kwargs)  
+  t = 0
+  
+  infile = h5file( filename, erase = erase, read = False )
+  infile.add_headers( h )
+  infile.add_data( str('0.0'), bec.x, bec.y, bec.psi, t )
+  
+
+  if wick == True: bec.wickon()
+  if wick == False: bec.wickoff()
+  savecounter = 0.
+  saves       = 0.
+  bec.energies( verbose = True )
   
   
   
+################################################################################
+# Then iterate until happy!
+################################################################################
+  # time-evolution------------------------------------------------------------
+  for t in np.arange( 0, tstop, dt ):
+    bec.psi = bec.step4()
+    savecounter += 1.
+    
+    if savecounter == skip: #save the data
+      infile.add_data(str( saves + 1.), bec.x, bec.y, bec.psi, t)
+      savecounter = 0.
+      saves += 1.
+      print t
+    
+    if wick == True:
+          bec.psi = bec.psi / np.sqrt( sum( sum ( abs( bec.psi ) ** 2. ) )
+             * bec.dx * bec.dy )
+  bec.energies( verbose = True )
+  print 'Run saved to ' + filename
+  print 'Parameters added to sims/runs.info'
+  print 'Have a nice day :)'
+  infile.f.close()
+  bec.TFError( verbose = True )
   return None
+  
+#def phasediagram():
+  #'''
+  #A static function currently to produce a 'phase diagram' of stability
+  #'''
+  #gvals = 10 ** np.linspace( -2., 3., 20. )
+  #Gvals = 10 ** np.linspace( -2., 3., 20. )
+  #for g in gvals:
+    #for G in Gvals:
+      
+  #return None
+  

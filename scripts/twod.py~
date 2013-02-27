@@ -107,6 +107,7 @@ class Bose:
     self.y  = self.x
     self.dy = abs( self.y[1] - self.y[0] )
     self.X, self.Y = np.meshgrid(self.x, self.y)
+    self.rad = np.sqrt( self.X ** 2. + self.Y ** 2. )
     
     self.psi = init( self.x, self.y, g = self.g, G = self.G, **kwargs )
     self.psi = self.psi / np.sqrt( sum( sum ( abs( self.psi ) ** 2. ) )
@@ -118,7 +119,7 @@ class Bose:
     
     self.expksquare       = np.exp    ( -0.5j * self.dt * self.ksquare )
     
-    self.log              = np.log( np.sqrt( self.X ** 2. + self.Y ** 2. ) )
+    self.log              = np.log    ( self.rad )
     
     #self.Lz               = self.Lzmake( order = 2. )
     

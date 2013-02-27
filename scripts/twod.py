@@ -32,6 +32,7 @@ from __future__ import division
 import numpy as np
 import scipy.fftpack as ff
 import scipy.linalg as la
+import matplotlib.pyplot as plt
 
 from scipy.sparse import spdiags
 from scipy.special import j0, j1, jn_zeros
