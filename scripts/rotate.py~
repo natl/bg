@@ -31,12 +31,12 @@
 from __future__ import division
 
 import numpy as np
-import scipy.fftpack as ff
 import scipy.linalg as la
 import fftw3
 
 from scipy.sparse import spdiags
 from scipy.special import j0, j1, jn_zeros
+from scipy.fftpack import fftshift
 
 from trapsave import *
 from initials import *
@@ -68,14 +68,19 @@ class Bose:
     self.X, self.Y = np.meshgrid(self.x, self.y)
     self.rad = np.sqrt( self.X ** 2. + self.Y ** 2. )
     
-    self.psi = np.zeros( [self.npt, self.npt], dtype = complex )
+    self.rpsi, self.fpsi, self.pfft, self.pifft = self.fftwsetup()
+    print id(self.psi)
+    self.rpsiK, self.fpsiK, self.pKfft, self.pKifft = self.fftwsetup()
+    print id(self.psi)
+    self.rden, self.fden, self.denfft, self.denifft = self.fftwsetup()
+    
     self.psi += init( self.x, self.y, g = self.g, G = self.G, **kwargs )
     self.normalise()
     
     self.ksquare , self.k = self.k2dimen()
     self.V                = self.harm_trap()
     self.ker              = self.kernel()
-    self.expksquare       = np.exp( -1.j * self.dt * self.ksquare )
+    self.expksquare       = np.exp( 1.j * 0.5 * self.dt * self.ksquare )
     self.log              = np.log( self.rad )
     self.flog             = abs( ff.fft2( ff.fftshift( -self.log ) ) )
     self.Lz               = self.Lzmake( **kwargs )
@@ -85,12 +90,20 @@ class Bose:
   def fftwsetup( self ,
                  nthreads = 2):
     '''
+    rspc, fspc, forw, back = fftwsetup( self , nthreads = 2)
+    
+    rspc = real space array
+    fspc = fourier space array
+    forw = FFT
+    back = IFFT
+    Plan some FFTs, then return them to a higher level function, as well
+    as the correct arrays
     '''
     rspc = np.zeros( [self.npt, self.npt], dtype = complex )
     fspc = np.zeros( [self.npt, self.npt], dtype = complex )
-    forw = fftw3.Plan( self.rspc, self.fspc, direction='forward', 
+    forw = fftw3.Plan( rspc, fspc, direction='forward', 
                        flags=['estimate'], nthreads=nthreads )
-    back = fftw3.Plan( self.rspc, self.fspc, direction='backward', 
+    back = fftw3.Plan( rspc, fspc, direction='backward', 
                        flags=['estimate'], nthreads=nthreads )
     return rspc, fspc, forw, back
   
@@ -100,7 +113,7 @@ class Bose:
     call normalise() to normalise the wavefunction
     return is None
     '''
-    self.psi = self.psi / np.sqrt( sum( sum ( abs( self.psi ) ** 2. ) )
+    self.psi /= np.sqrt( sum( sum ( abs( self.psi ) ** 2. ) )
              * self.dx * self.dy )
     return None
   #-----------------------------------------------------------------------------
@@ -147,13 +160,16 @@ class Bose:
     Evaluate the gravitational field, with a call to Bose.gravity()
     Gravitaional field is the convolution of the density and the log of distance
     '''
-    den = abs(self.psi)**2.  #calculate the probability density
+    self.rden[:] = abs(self.psi)**2.  #calculate the probability density
     
+    #convolve
+    self.rden[:] = fftshift( self.rden[:] )
+    self.denfft()
+    self.fden *= self.flog
+    self.denifft()
     #return the convolution, after multiplying by scaled gravity and 
     #correcting for grid scaling (due to 2 forward FFTs, and only one inverse
-    return self.G * self.dx * self.dy * (
-           ff.fftshift( ff.ifft2( ff.fft2( ff.fftshift( den ) ) * self.flog ) )
-                                        )
+    return self.G * self.dx * self.dy * fftshift( self.den )
   
   #-----------------------------------------------------------------------------
   def stepRK4(self):
@@ -164,7 +180,7 @@ class Bose:
     n2 = self.npt ** 2.
     sq = [ self.npt, self.npt ]
     
-    psii   = self.psi
+    psi   = self.psi.reshape( n2 )
     
     #Linear operator parts
     psiI = self.intpic( self.psi ).reshape( n2 )
@@ -180,37 +196,39 @@ class Bose:
     #as this is requried if FFTW is ever implemented. We still need to update
     #self.psi at each step though to calculate self.gravity()
     ############################################################################
-    k1 = ( self.dt * nonlin.dot( psiI ) ).reshape( sq )
-    self.psi[:] = self.intpic( psiI.reshape( sq ) + k1 / 2. )
+    k1 = self.intpic( ( nonlin.dot( psi ) ).reshape( sq ) )
+    #self.psi[:] = self.intpic( psiI.reshape( sq ) + k1 / 2. )
     
-    grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
-    sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
-    nonlin = self.Lz + grav + harm + sint 
+    #grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
+    #sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+    #nonlin = self.Lz + grav + harm + sint 
     ############################################################################
-    k2 = ( self.dt * nonlin.dot( psiI + k1.reshape( n2 ) / 2. ) ).reshape( sq )
-    self.psi[:] = self.intpic( psiI.reshape( sq ) + k2 / 2. )
+    k2 = ( nonlin.dot( psiI + self.dt * k1.reshape( n2 ) / 2. ) ).reshape( sq )
+    #self.psi[:] = self.intpic( psiI.reshape( sq ) + k2 / 2. )
     
-    grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
-    sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
-    nonlin = self.Lz + grav + harm + sint 
+    #grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
+    #sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+    #nonlin = self.Lz + grav + harm + sint 
     ############################################################################
-    k3 = ( self.dt * nonlin.dot( psiI + k2.reshape( n2 ) / 2. ) ).reshape( sq )
-    self.psi[:] = self.intpic( psiI.reshape( sq ) + k3 )
+    k3 = ( nonlin.dot( psiI + self.dt * k2.reshape( n2 ) / 2. ) ).reshape( sq )
+    #self.psi[:] = self.intpic( psiI.reshape( sq ) + k3 )
     
-    grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
-    sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
-    nonlin = self.Lz + grav + harm + sint 
+    #grav = spdiags( +1.j * self.gravity().reshape( n2 ), 0, n2, n2 )
+    #sint = spdiags( -1.j * self.g * abs( self.psi.reshape( n2 ) ) ** 2., 0, n2, n2 )
+    #nonlin = self.Lz + grav + harm + sint 
     ############################################################################
     
-    k4 = self.dt * nonlin.dot( self.intpic( self.psi ).reshape( n2 ) 
-                             ).reshape( sq )
+    k4 = nonlin.dot( 
+               self.intpic( psiI.reshape( sq ) + self.dt * k3 ).reshape( n2 ) 
+                   ).reshape( sq )
     
     ############################################################################
     
     
     self.psi[:] = self.intpic( psiI.reshape(sq) + 
-                             (k1 + 2 * ( k2 +k3 ) + k4 ) / 6. )
+                        self.dt * ( k1 + 2 * ( k2 +k3 ) ) / 6. ) * k4 / 2.
     if self.wick == True: self.normalise()
+    print id(self.psi)
     return None
     
   #-----------------------------------------------------------------------------
@@ -219,7 +237,7 @@ class Bose:
     intpic( self, field ):
     transform field from real space to Interaction Picture
     '''
-    return ff.fftshift( ff.ifft2( self.expksquare ** 0.5 * 
+    return ff.fftshift( ff.ifft2( self.expksquare * 
                          ff.fft2( ff.fftshift( field ) ) ) )
   
   #-----------------------------------------------------------------------------
@@ -228,7 +246,7 @@ class Bose:
     simple function to ensure imaginary time propagation
     '''
     self.dt               = -1j * abs( self.dt )
-    self.expksquare       = np.exp( -1.j * self.dt * self.ksquare )
+    self.expksquare       = np.exp( -1.j * 0.5 * self.dt * self.ksquare )
     self.wick             = True #internal tracker of current wick state
     return None
   #-----------------------------------------------------------------------------
@@ -238,7 +256,7 @@ class Bose:
     simple function to ensure real time propagation
     '''
     self.dt               = abs( self.dt )
-    self.expksquare       = np.exp( -1.j * self.dt * self.ksquare )
+    self.expksquare       = np.exp( -1.j * 0.5 * self.dt * self.ksquare )
     self.wick             = False #internal tracker of current wick state
     return None
   #-----------------------------------------------------------------------------
